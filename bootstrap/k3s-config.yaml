@@ -1,0 +1,15 @@
+# /etc/rancher/k3s/config.yaml (installed by install-k3s.sh)
+#
+# The kubelet defaults assume a disk that belongs to the cluster. Here k3s
+# shares Docker's image store on a nearly full disk with everything else:
+# - Image GC (default: delete unused images above 85% disk use) removes any
+#   Docker image no container references. It deleted the locally built
+#   runtime images, which can't be pulled back, minutes after the install.
+#   100 disables it; images are managed with docker, by hand.
+# - Eviction (default: disk pressure below 10% free) tainted the node at 98%
+#   use, so no pod could be scheduled. Absolute floors replace the
+#   percentages.
+kubelet-arg:
+  - "image-gc-high-threshold=100"
+  - "image-gc-low-threshold=99"
+  - "eviction-hard=memory.available<200Mi,nodefs.available<3Gi,imagefs.available<3Gi"

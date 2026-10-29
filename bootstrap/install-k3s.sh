@@ -10,6 +10,8 @@
 #    containerd, so the cluster reuses Docker's image store: the AllTalk image
 #    alone is 14.7 GB and the disk has ~12 GB free, so a second copy won't fit.
 #    Traefik and the service load balancer are disabled; NodePorts suffice.
+#    k3s-config.yaml turns off kubelet image GC and sets absolute disk
+#    eviction floors; the defaults delete Docker images and taint the node.
 # 3. Copies the kubeconfig to the invoking user's ~/.kube/config.
 set -euo pipefail
 
@@ -29,6 +31,8 @@ systemctl restart docker
 docker info --format 'Docker {{.ServerVersion}}, default runtime: {{.DefaultRuntime}}'
 
 echo "== 2/3 Installing k3s (stable channel, Docker runtime)"
+# Kubelet settings for a shared, nearly full disk; see the file's comments.
+install -D -m 644 "$(dirname "$0")/k3s-config.yaml" /etc/rancher/k3s/config.yaml
 curl -sfL https://get.k3s.io | INSTALL_K3S_CHANNEL=stable \
     INSTALL_K3S_EXEC="server --docker --disable traefik --disable servicelb --write-kubeconfig-mode 600" sh -
 

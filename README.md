@@ -61,6 +61,11 @@ free before the runtime images (stocks 8 GB with CUDA torch, storysearch
 option. With cri-dockerd,
 pods use the images Docker already has, and the locally built runtime
 images need no registry (`imagePullPolicy: Never`).
+Sharing Docker's store has a cost: kubelet treats it as its own. Its image
+GC deleted the runtime images (no container referenced them) minutes
+after the first install, and its default 10%-free eviction threshold
+tainted the node. `bootstrap/k3s-config.yaml` disables image GC and uses
+absolute disk floors (3 GiB) instead.
 
 **Runtime images, mounted code.** Each project's `Dockerfile` contains only
 its Python environment, built from `uv.lock`. The project directory is
