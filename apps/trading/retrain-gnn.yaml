@@ -1,0 +1,47 @@
+# Weekly v1 retrain: download, rebuild dataset, train, promote. Requests 4 GPU slots (~2 GB), so it
+# waits while the audiobook stack holds the GPU instead of failing with CUDA OOM.
+# startingDeadlineSeconds 2 days: unlike cron, a run missed while the machine was off still happens.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: retrain-gnn
+spec:
+  suspend: true               # enable with 'make trading-enable' once the crontab entries are removed
+  schedule: "0 0 * * 6"
+  timeZone: Europe/Berlin
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 172800
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 14400
+      template:
+        metadata:
+          labels: {app: retrain-gnn}
+        spec:
+          restartPolicy: Never
+          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          containers:
+            - name: retrain-gnn
+              image: homelab/stocks-runtime:latest
+              imagePullPolicy: Never
+              workingDir: /app
+              command: ["bash", "-c"]
+              # tee keeps logs/*.log current for the dashboard; pipefail keeps failures visible to k8s
+              args: ["set -o pipefail; { python alpaca_data_download.py && python process.py && python train.py; } 2>&1 | tee -a logs/retrain.log"]
+              env:
+                - {name: HOME, value: /tmp}
+                - {name: MPLCONFIGDIR, value: /tmp}
+                - {name: PYTHONUNBUFFERED, value: "1"}
+              envFrom:
+                - secretRef: {name: alpaca}
+              resources:
+                requests: {cpu: "2", memory: 2Gi}
+                limits: {nvidia.com/gpu: 4, memory: 5Gi}
+              volumeMounts:
+                - {name: project, mountPath: /app}
+          volumes:
+            - name: project
+              hostPath: {path: /home/theurerjohn3/Documents/agents/stocks, type: Directory}

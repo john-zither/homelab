@@ -1,0 +1,45 @@
+# VGSLX uncapped-REIT tracker vs VNQ, 15:10 New York (no retries, same reasons as paper-gnn).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vgslx
+spec:
+  suspend: true               # enable with 'make trading-enable' once the crontab entries are removed
+  schedule: "10 15 * * 1-5"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels: {app: vgslx}
+        spec:
+          restartPolicy: Never
+          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          containers:
+            - name: vgslx
+              image: homelab/stocks-runtime:latest
+              imagePullPolicy: Never
+              workingDir: /app
+              command: ["bash", "-c"]
+              # tee keeps logs/*.log current for the dashboard; pipefail keeps failures visible to k8s
+              args: ["set -o pipefail; python vgslx_tracker.py 2>&1 | tee -a logs/vgslx.log"]
+              env:
+                - {name: HOME, value: /tmp}
+                - {name: MPLCONFIGDIR, value: /tmp}
+                - {name: PYTHONUNBUFFERED, value: "1"}
+              envFrom:
+                - secretRef: {name: alpaca}
+              resources:
+                requests: {cpu: 250m, memory: 512Mi}
+                limits: {memory: 2Gi}
+              volumeMounts:
+                - {name: project, mountPath: /app}
+          volumes:
+            - name: project
+              hostPath: {path: /home/theurerjohn3/Documents/agents/stocks, type: Directory}

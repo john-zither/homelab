@@ -1,0 +1,47 @@
+# v1 GNN bracket rebalance at 15:00 New York. timeZone makes the US/EU DST mismatch weeks a non-issue.
+# backoffLimit 0: never auto-retry a trading run (a retry after partial orders could double them).
+# startingDeadlineSeconds 600: if the node was down at 15:00, skip the day rather than trade late.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paper-gnn
+spec:
+  suspend: true               # enable with 'make trading-enable' once the crontab entries are removed
+  schedule: "0 15 * * 1-5"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels: {app: paper-gnn}
+        spec:
+          restartPolicy: Never
+          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          containers:
+            - name: paper-gnn
+              image: homelab/stocks-runtime:latest
+              imagePullPolicy: Never
+              workingDir: /app
+              command: ["bash", "-c"]
+              # tee keeps logs/*.log current for the dashboard; pipefail keeps failures visible to k8s
+              args: ["set -o pipefail; python paper.py 2>&1 | tee -a logs/paper_trading.log"]
+              env:
+                - {name: HOME, value: /tmp}
+                - {name: MPLCONFIGDIR, value: /tmp}
+                - {name: PYTHONUNBUFFERED, value: "1"}
+              envFrom:
+                - secretRef: {name: alpaca}
+              resources:
+                requests: {cpu: 250m, memory: 512Mi}
+                limits: {memory: 2Gi}
+              volumeMounts:
+                - {name: project, mountPath: /app}
+          volumes:
+            - name: project
+              hostPath: {path: /home/theurerjohn3/Documents/agents/stocks, type: Directory}
