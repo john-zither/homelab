@@ -55,8 +55,10 @@ apps outside that window isn't accounted for. Audiobook Jobs use
 on the network.
 
 **k3s on Docker (`--docker`).** k3s normally brings its own containerd and
-image store. The AllTalk image alone is 14.7 GB and the disk has about 20 GB
-free, so a second copy of every image is not an option. With cri-dockerd,
+image store. The AllTalk image alone is 14.7 GB, and the disk had about 20 GB
+free before the runtime images (stocks 8 GB with CUDA torch, storysearch
+2.2 GB) and is now at about 12 GB, so a second copy of every image is not an
+option. With cri-dockerd,
 pods use the images Docker already has, and the locally built runtime
 images need no registry (`imagePullPolicy: Never`).
 
