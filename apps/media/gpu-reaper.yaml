@@ -1,0 +1,109 @@
+# Scales the GPU media stack (AllTalk + Ollama reservation) to zero when no
+# audiobook Job is active, so a forgotten 'up' can't hold ~5.5 GB of VRAM and
+# starve the weekly retrain. Skip by annotating the alltalk Deployment with
+# homelab/keep-up=true (e.g. while using AllTalk interactively).
+#
+# Talks to the API server directly with the pod's service account (no kubectl
+# image needed) and may only list Jobs and scale the two Deployments.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gpu-reaper
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-reaper
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["alltalk", "ollama-gpu-reservation"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["alltalk", "ollama-gpu-reservation"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-reaper
+subjects:
+  - kind: ServiceAccount
+    name: gpu-reaper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-reaper
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-reaper
+data:
+  reaper.py: |
+    import json, ssl, urllib.request
+
+    SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+    API = "https://kubernetes.default.svc"
+    NS = open(f"{SA}/namespace").read().strip()
+    TOKEN = open(f"{SA}/token").read().strip()
+    CTX = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+    STACK = ["alltalk", "ollama-gpu-reservation"]
+
+    def call(method, path, body=None, ctype="application/json"):
+        req = urllib.request.Request(f"{API}{path}", method=method,
+                                     data=json.dumps(body).encode() if body else None)
+        req.add_header("Authorization", f"Bearer {TOKEN}")
+        req.add_header("Content-Type", ctype)
+        with urllib.request.urlopen(req, context=CTX) as r:
+            return json.load(r)
+
+    jobs = call("GET", f"/apis/batch/v1/namespaces/{NS}/jobs?labelSelector=app%3Daudiobook")["items"]
+    active = [j["metadata"]["name"] for j in jobs if j.get("status", {}).get("active")]
+    alltalk = call("GET", f"/apis/apps/v1/namespaces/{NS}/deployments/alltalk")
+    keep = alltalk["metadata"].get("annotations", {}).get("homelab/keep-up") == "true"
+    if active or keep:
+        print(f"leaving GPU stack up (active jobs: {active}, keep-up: {keep})")
+    elif alltalk["spec"].get("replicas", 0) == 0:
+        print("GPU stack already down")
+    else:
+        for name in STACK:
+            call("PATCH", f"/apis/apps/v1/namespaces/{NS}/deployments/{name}/scale",
+                 {"spec": {"replicas": 0}}, "application/merge-patch+json")
+        print("no active audiobook jobs: scaled GPU stack to 0")
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gpu-reaper
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      template:
+        spec:
+          serviceAccountName: gpu-reaper
+          restartPolicy: Never
+          securityContext: {runAsUser: 65534, runAsGroup: 65534}
+          containers:
+            - name: reaper
+              image: homelab/storysearch-runtime:latest   # any image with python3 will do
+              imagePullPolicy: Never
+              command: ["python", "/reaper/reaper.py"]
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 128Mi}
+              volumeMounts:
+                - {name: script, mountPath: /reaper}
+          volumes:
+            - name: script
+              configMap: {name: gpu-reaper}

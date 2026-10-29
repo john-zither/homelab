@@ -1,0 +1,55 @@
+# AllTalk XTTS server. Scaled to 0 by default: it pins ~3.1 GB of VRAM while
+# up, so it runs only while audiobooks are being generated (scripts/audiobook.sh).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alltalk
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate          # never two copies on one 6 GB GPU
+  selector:
+    matchLabels: {app: alltalk}
+  template:
+    metadata:
+      labels: {app: alltalk}
+    spec:
+      containers:
+        - name: alltalk
+          image: erew123/alltalk_tts:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: AT_LOWVRAM, value: "True"}
+            - {name: AT_DEEPSPEED, value: "True"}
+          ports:
+            - {name: http, containerPort: 7851}
+          readinessProbe:
+            httpGet: {path: /api/ready, port: http}
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 30
+            failureThreshold: 30
+          resources:
+            requests: {cpu: 500m, memory: 3Gi}
+            limits: {nvidia.com/gpu: 7, memory: 6Gi}
+          volumeMounts:
+            - {name: storage, mountPath: /app/outputs}
+            - {name: storage, mountPath: /app/alltalk/outputs}
+            - {name: voices, mountPath: /app/alltalk/models/xtts/voices}
+            - {name: models, mountPath: /app/models}
+      volumes:
+        - name: storage
+          hostPath: {path: /home/theurerjohn3/Documents/agents/2026/ragnas/alltalk_storage, type: Directory}
+        - name: voices
+          hostPath: {path: /home/theurerjohn3/Documents/agents/2026/ragnas/voices/wav, type: Directory}
+        - name: models
+          hostPath: {path: /home/theurerjohn3/Documents/agents/2026/ragnas/alltalk_models, type: Directory}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alltalk
+spec:
+  selector: {app: alltalk}
+  ports:
+    - {name: http, port: 7851, targetPort: http}

@@ -1,0 +1,55 @@
+# Semantic search API (CPU; sentence-transformers + ChromaDB on the external
+# drive). Scaled to 0 by default on this 11 GB machine; 'make search-up'.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storysearch-api
+spec:
+  replicas: 0
+  selector:
+    matchLabels: {app: storysearch-api}
+  template:
+    metadata:
+      labels: {app: storysearch-api}
+    spec:
+      securityContext: {runAsUser: 1000, runAsGroup: 1000}
+      containers:
+        - name: api
+          image: homelab/storysearch-runtime:latest
+          imagePullPolicy: Never
+          workingDir: /app
+          command: ["python", "-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+          env:
+            - {name: USER, value: theurerjohn3}      # paths.py finds the drive under /media/$USER
+            - {name: HOME, value: /tmp}
+            - {name: HF_HOME, value: /hf-cache}          # reuse the host's downloaded models
+          ports:
+            - {name: http, containerPort: 8000}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 200m, memory: 1Gi}
+            limits: {memory: 3Gi}
+          volumeMounts:
+            - {name: project, mountPath: /app}
+            - {name: media, mountPath: /media/theurerjohn3, mountPropagation: HostToContainer}
+            - {name: hf-cache, mountPath: /hf-cache}
+      volumes:
+        - name: project
+          hostPath: {path: /home/theurerjohn3/Documents/agents/storysearch, type: Directory}
+        - name: media
+          hostPath: {path: /media/theurerjohn3, type: Directory}
+        - name: hf-cache
+          hostPath: {path: /home/theurerjohn3/.cache/huggingface, type: DirectoryOrCreate}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storysearch-api
+spec:
+  type: NodePort
+  selector: {app: storysearch-api}
+  ports:
+    - {name: http, port: 8000, targetPort: http, nodePort: 30802}

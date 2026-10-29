@@ -1,0 +1,64 @@
+# Template rendered by scripts/audiobook.sh (__NAME__, __ARGS__ are replaced).
+# hostNetwork: host Ollama listens on 127.0.0.1 only and is deliberately not
+# exposed to the network; the job reaches AllTalk through its ClusterIP.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __NAME__
+  namespace: media
+  labels: {app: audiobook}
+spec:
+  backoffLimit: 2               # generation resumes at the chunk level, so retries are cheap
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels: {app: audiobook}
+    spec:
+      restartPolicy: Never
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext: {runAsUser: 1000, runAsGroup: 1000}
+      # The job is created before the GPU stack is scaled up (so the reaper
+      # never sees an up stack with no active job); wait for AllTalk here.
+      initContainers:
+        - name: wait-for-alltalk
+          image: homelab/storysearch-runtime:latest
+          imagePullPolicy: Never
+          command: ["python", "-c"]
+          args:
+            - |
+              import time, urllib.request
+              for _ in range(120):
+                  try:
+                      urllib.request.urlopen("http://alltalk.media.svc.cluster.local:7851/api/ready", timeout=10)
+                      raise SystemExit(0)
+                  except OSError:
+                      time.sleep(15)
+              raise SystemExit("AllTalk not ready after 30 min")
+      containers:
+        - name: generate
+          image: homelab/storysearch-runtime:latest
+          imagePullPolicy: Never
+          workingDir: /app
+          command: ["python", "main.py"]
+          args: __ARGS__
+          env:
+            - {name: USER, value: theurerjohn3}
+            - {name: HOME, value: /tmp}
+            - {name: ALLTALK_TTS_URL, value: "http://alltalk.media.svc.cluster.local:7851"}
+            - {name: ALLTALK_STORAGE_DIR, value: /alltalk_storage}
+            - {name: OLLAMA_URL, value: "http://127.0.0.1:11434"}
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits: {memory: 2Gi}
+          volumeMounts:
+            - {name: project, mountPath: /app}
+            - {name: alltalk-storage, mountPath: /alltalk_storage}
+            - {name: media, mountPath: /media/theurerjohn3, mountPropagation: HostToContainer}
+      volumes:
+        - name: project
+          hostPath: {path: /home/theurerjohn3/Documents/agents/storysearch, type: Directory}
+        - name: alltalk-storage
+          hostPath: {path: /home/theurerjohn3/Documents/agents/2026/ragnas/alltalk_storage, type: Directory}
+        - name: media
+          hostPath: {path: /media/theurerjohn3, type: Directory}
