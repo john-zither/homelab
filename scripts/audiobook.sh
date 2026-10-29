@@ -5,14 +5,15 @@
 #   scripts/audiobook.sh run generate /media/theurerjohn3/My\ Passport/storysearch/inbox/book.epub --unique-voices
 #   scripts/audiobook.sh up | down | status
 #
-# 'run' creates the Job first and then scales the GPU stack up; the Job's init
-# container waits for AllTalk. The gpu-reaper CronJob scales the stack back to
-# zero once no audiobook Job is active.
+# 'run' creates the Job; its driver scales the GPU stack per phase (speaker
+# attribution with the Ollama reservation, then synthesis with AllTalk). The
+# gpu-reaper CronJob scales everything to zero once no audiobook Job is active.
+# 'up' starts AllTalk alone, for manual use.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 NS=media
 
-up()   { kubectl -n $NS scale deploy/alltalk deploy/ollama-gpu-reservation --replicas=1; }
+up()   { kubectl -n $NS scale deploy/alltalk --replicas=1; }
 down() { kubectl -n $NS scale deploy/alltalk deploy/ollama-gpu-reservation --replicas=0; }
 
 case "${1:-}" in
@@ -26,8 +27,7 @@ import sys
 tmpl, name, args = sys.argv[1:]
 print(open(tmpl).read().replace("__NAME__", name).replace("__ARGS__", args))
 PY
-        up
-        echo "Follow with:  kubectl -n $NS logs -f job/$name -c generate"
+        echo "Follow with:  kubectl -n $NS logs -f job/$name"
         ;;
     up) up ;;
     down) down ;;

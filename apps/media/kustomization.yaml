@@ -6,3 +6,4 @@ resources:
   - ollama-reservation.yaml
   - storysearch-api.yaml
   - gpu-reaper.yaml
+  - audiobook-driver.yaml

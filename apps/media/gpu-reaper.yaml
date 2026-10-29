@@ -1,6 +1,6 @@
 # Scales the GPU media stack (AllTalk + Ollama reservation) to zero when no
-# audiobook Job is active, so a forgotten 'up' can't hold ~5.5 GB of VRAM and
-# starve the weekly retrain. Skip by annotating the alltalk Deployment with
+# audiobook Job is active, so a forgotten 'up' or a Job that died mid-phase
+# can't hold the GPU and starve the weekly retrain. Skip by annotating the alltalk Deployment with
 # homelab/keep-up=true (e.g. while using AllTalk interactively).
 #
 # Talks to the API server directly with the pod's service account (no kubectl
@@ -64,11 +64,11 @@ data:
 
     jobs = call("GET", f"/apis/batch/v1/namespaces/{NS}/jobs?labelSelector=app%3Daudiobook")["items"]
     active = [j["metadata"]["name"] for j in jobs if j.get("status", {}).get("active")]
-    alltalk = call("GET", f"/apis/apps/v1/namespaces/{NS}/deployments/alltalk")
-    keep = alltalk["metadata"].get("annotations", {}).get("homelab/keep-up") == "true"
+    deps = {n: call("GET", f"/apis/apps/v1/namespaces/{NS}/deployments/{n}") for n in STACK}
+    keep = deps["alltalk"]["metadata"].get("annotations", {}).get("homelab/keep-up") == "true"
     if active or keep:
         print(f"leaving GPU stack up (active jobs: {active}, keep-up: {keep})")
-    elif alltalk["spec"].get("replicas", 0) == 0:
+    elif all(d["spec"].get("replicas", 0) == 0 for d in deps.values()):
         print("GPU stack already down")
     else:
         for name in STACK:

@@ -1,0 +1,102 @@
+# Runs one audiobook Job in two GPU phases, because the attribution model and
+# AllTalk don't fit on the 6 GB card together:
+#
+#   1. attribution: AllTalk scaled to 0, the Ollama reservation holds the whole
+#      GPU (waiting behind any other GPU work), main.py ... --attribute-only
+#      caches each book's speaker segments and unloads the model.
+#   2. synthesis: reservation released, AllTalk scaled up, main.py ... reuses
+#      the cached segments.
+#
+# Single-voice runs skip phase 1. The gpu-reaper scales everything down once
+# the Job is gone.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audiobook
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: audiobook
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["alltalk", "ollama-gpu-reservation"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["alltalk", "ollama-gpu-reservation"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: audiobook
+subjects:
+  - kind: ServiceAccount
+    name: audiobook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: audiobook
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audiobook-driver
+data:
+  driver.py: |
+    import json, os, ssl, subprocess, sys, time, urllib.request
+
+    SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+    API = "https://kubernetes.default.svc"
+    NS = open(f"{SA}/namespace").read().strip()
+    TOKEN = open(f"{SA}/token").read().strip()
+    CTX = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+    ALLTALK = os.environ["ALLTALK_TTS_URL"]
+
+    def call(method, path, body=None, ctype="application/json"):
+        req = urllib.request.Request(f"{API}{path}", method=method,
+                                     data=json.dumps(body).encode() if body else None)
+        req.add_header("Authorization", f"Bearer {TOKEN}")
+        req.add_header("Content-Type", ctype)
+        with urllib.request.urlopen(req, context=CTX) as r:
+            return json.load(r)
+
+    def scale(name, n):
+        call("PATCH", f"/apis/apps/v1/namespaces/{NS}/deployments/{name}/scale",
+             {"spec": {"replicas": n}}, "application/merge-patch+json")
+
+    def wait(what, check, minutes):
+        for _ in range(minutes * 4):
+            try:
+                if check():
+                    return
+            except OSError:
+                pass
+            time.sleep(15)
+        sys.exit(f"{what} not ready after {minutes} min")
+
+    def ready(name):
+        d = call("GET", f"/apis/apps/v1/namespaces/{NS}/deployments/{name}")
+        return d.get("status", {}).get("readyReplicas", 0) >= 1
+
+    def log(msg):
+        print(f"[driver] {msg}", flush=True)
+
+    args = sys.argv[1:]
+    multi = (args[:1] == ["batch"] and "--single-voice" not in args) or \
+            (args[:1] == ["generate"] and "--unique-voices" in args)
+
+    if multi:
+        log("phase 1: speaker attribution (AllTalk off, GPU reserved for Ollama)")
+        scale("alltalk", 0)
+        scale("ollama-gpu-reservation", 1)
+        wait("GPU reservation", lambda: ready("ollama-gpu-reservation"), 360)
+        subprocess.run(["python", "main.py", *args, "--attribute-only"], check=True)
+        scale("ollama-gpu-reservation", 0)
+
+    log("phase 2: synthesis (AllTalk)")
+    scale("alltalk", 1)
+    wait("AllTalk", lambda: urllib.request.urlopen(f"{ALLTALK}/api/ready", timeout=10), 30)
+    os.execvp("python", ["python", "main.py", *args])

@@ -1,7 +1,9 @@
-# Ollama runs on the host (systemd), shared with jobseeker and ragnas, so the
-# scheduler cannot see its VRAM. While the audiobook stack is up, this
-# placeholder pod holds Ollama's share of GPU slots, so nothing else is
-# scheduled into memory the model is actually using. It does no work.
+# Ollama runs on the host (systemd), shared with jobseeker, so the scheduler
+# cannot see its VRAM. While an audiobook Job attributes speakers with
+# qwen2.5:7b (~5.4 GB, nearly the whole 6 GB card), this placeholder pod holds
+# all 12 GPU slots, so nothing else is scheduled into memory the model is
+# using. The audiobook driver scales it up for that phase and back down before
+# AllTalk starts. It does no work.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,4 +21,4 @@ spec:
           image: registry.k8s.io/pause:3.10
           resources:
             requests: {cpu: 1m, memory: 8Mi}
-            limits: {nvidia.com/gpu: 5, memory: 16Mi}
+            limits: {nvidia.com/gpu: 12, memory: 16Mi}
