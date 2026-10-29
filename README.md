@@ -85,8 +85,13 @@ chunk level.
 
 ## Setup
 
+Docker here is the snap (`/var/snap/docker`). The bootstrap disables the
+apt `docker.service`/`docker.socket`, which are installed but fail at every
+boot. If restarted, their socket takes over `/var/run/docker.sock` from the
+snap daemon.
+
 ```bash
-sudo ./bootstrap/install-k3s.sh   # NVIDIA as Docker's default runtime; k3s --docker; kubeconfig
+sudo ./bootstrap/install-k3s.sh   # snap Docker: NVIDIA default runtime + /media; k3s --docker; kubeconfig
 make cluster                      # namespaces + device plugin
 kubectl get node -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}'   # → 12
 make images                       # homelab/{stocks,storysearch}-runtime
