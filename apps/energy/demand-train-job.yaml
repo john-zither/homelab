@@ -1,0 +1,37 @@
+# One walk-forward training run of the SMARD demand model (smard/demand, demand.nn): 12 monthly
+# folds x 5 seeds. Created by scripts/demand-train.sh with a generated name. Requests 3 GPU
+# slots (~1.5 GB VRAM), so it waits while the audiobook stack holds the card instead of
+# failing with CUDA OOM, and can share the card with a stocks retrain.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: demand-train-
+  namespace: energy
+  labels: {app: demand-train}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 7200
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels: {app: demand-train}
+    spec:
+      restartPolicy: Never
+      securityContext: {runAsUser: 1000, runAsGroup: 1000}
+      containers:
+        - name: train
+          image: homelab/smard-runtime:latest
+          imagePullPolicy: Never
+          workingDir: /app
+          command: ["bash", "-c"]
+          args: ["set -o pipefail; python -m demand.nn 2>&1 | tee -a results/nn.log"]
+          env:
+            - {name: HOME, value: /tmp}
+          resources:
+            requests: {cpu: "2", memory: 2Gi}
+            limits: {nvidia.com/gpu: 3, memory: 6Gi}
+          volumeMounts:
+            - {name: project, mountPath: /app}
+      volumes:
+        - name: project
+          hostPath: {path: /home/theurerjohn3/Documents/agents/smard/demand, type: Directory}

@@ -3,12 +3,13 @@
 # See README.md for the cutover checklist before enabling trading CronJobs.
 
 .PHONY: validate cluster images secrets deploy status gpu \
-        trading-enable trading-disable media-up media-down search-up search-down audiobook
+        trading-enable trading-disable demand-train media-up media-down search-up search-down audiobook
 
 KUSTOMIZATIONS := cluster apps/media apps/trading
 
 validate:            ## render every kustomization and schema-check it
 	@for k in $(KUSTOMIZATIONS); do echo "== $$k"; kubectl kustomize $$k | kubeconform -strict -summary -; done
+	@echo "== apps/energy (Job templates)"; kubeconform -strict -summary apps/energy/*.yaml
 
 cluster:             ## namespaces + NVIDIA device plugin (12 GPU slots)
 	kubectl apply -k cluster
@@ -43,6 +44,9 @@ trading-enable:      ## only after removing the stocks lines from your crontab!
 trading-disable:
 	for cj in paper-linkgnn vgslx dashboard; do \
 	  kubectl -n trading patch cronjob $$cj -p '{"spec":{"suspend":true}}'; done
+
+demand-train:        ## train the SMARD demand model on the GPU (smard/demand)
+	scripts/demand-train.sh
 
 media-up:
 	scripts/audiobook.sh up

@@ -4,8 +4,10 @@
 # uv.lock, so 'docker images' shows which dependency set each image holds.
 set -euo pipefail
 AGENTS="$(cd "$(dirname "$0")/../.." && pwd)"
-for project in stocks storysearch; do
-    lock=$(sha256sum "$AGENTS/$project/uv.lock" | cut -c1-12)
-    echo "== homelab/$project-runtime (uv.lock $lock)"
-    docker build -t "homelab/$project-runtime:latest" -t "homelab/$project-runtime:$lock" "$AGENTS/$project"
+# image name:project directory
+for spec in stocks:stocks storysearch:storysearch smard:smard/demand; do
+    name=${spec%%:*} dir="$AGENTS/${spec#*:}"
+    lock=$(sha256sum "$dir/uv.lock" | cut -c1-12)
+    echo "== homelab/$name-runtime (uv.lock $lock)"
+    docker build -t "homelab/$name-runtime:latest" -t "homelab/$name-runtime:$lock" "$dir"
 done
