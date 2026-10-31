@@ -1,5 +1,7 @@
 # homelab
 
+[![validate](https://github.com/john-zither/homelab/actions/workflows/validate.yml/badge.svg)](https://github.com/john-zither/homelab/actions/workflows/validate.yml)
+
 Single-node k3s cluster for a workstation with one 6 GB GPU (RTX 2060) and
 11 GB of RAM. It runs two projects that used to compete for the GPU under
 cron, docker-compose and ad-hoc `docker start`:
