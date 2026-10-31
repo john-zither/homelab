@@ -1,7 +1,13 @@
 # Live SMARD demand forecasting (smard/demand, demand.live).
 #   demand-retrain   Sunday 03:00: refit LightGBM and the network on all data (GPU, 3 slots)
 #   demand-forecast  daily 12:00: forecast tomorrow for all five regions, log it next to SMARD's
-#                    forecast as published at that moment, and update live/scoreboard.md (CPU only)
+#                    forecast as published at that moment, and push the day's file and the
+#                    scoreboard to GitHub, which also feeds the Pages site (CPU only)
+# The push uses a deploy key with write access to that one repo, kept only in the Secret
+# smard-deploy-key (id_ed25519, known_hosts). After a cluster rebuild, generate a new key:
+#   ssh-keygen -t ed25519 -N "" -f key && ssh-keyscan -t ed25519 github.com > known_hosts
+#   kubectl -n energy create secret generic smard-deploy-key --from-file=id_ed25519=key --from-file=known_hosts
+#   gh repo deploy-key add key.pub -R john-zither/Smard-Forecasts --allow-write
 # Times are Europe/Berlin, the timezone SMARD and the forecast day use.
 apiVersion: batch/v1
 kind: CronJob
@@ -30,7 +36,7 @@ spec:
               imagePullPolicy: Never
               workingDir: /app
               command: ["bash", "-c"]
-              args: ["set -o pipefail; python -m demand.live train 2>&1 | tee -a live/retrain.log"]
+              args: ["set -o pipefail; mkdir -p live-state; python -m demand.live train 2>&1 | tee -a live-state/retrain.log"]
               env:
                 - {name: HOME, value: /tmp}
               resources:
@@ -62,22 +68,28 @@ spec:
           labels: {app: demand-forecast}
         spec:
           restartPolicy: Never
-          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
           containers:
             - name: forecast
               image: homelab/smard-runtime:latest
               imagePullPolicy: Never
               workingDir: /app
               command: ["bash", "-c"]
-              args: ["set -o pipefail; mkdir -p live; python -m demand.live forecast 2>&1 | tee -a live/forecast.log"]
+              # ssh refuses a group-readable key, so take a private copy first.
+              args: ["set -o pipefail; install -m 600 /secrets/id_ed25519 /tmp/id_ed25519; mkdir -p live-state; python -m demand.live forecast 2>&1 | tee -a live-state/forecast.log"]
               env:
                 - {name: HOME, value: /tmp}
                 - {name: CUDA_VISIBLE_DEVICES, value: ""}
+                - {name: PUBLISH, value: "1"}
+                - {name: GIT_SSH_COMMAND, value: "ssh -i /tmp/id_ed25519 -o IdentitiesOnly=yes -o UserKnownHostsFile=/secrets/known_hosts"}
               resources:
                 requests: {cpu: "1", memory: 1Gi}
                 limits: {memory: 4Gi}
               volumeMounts:
                 - {name: project, mountPath: /app}
+                - {name: deploy-key, mountPath: /secrets, readOnly: true}
           volumes:
             - name: project
               hostPath: {path: /home/theurerjohn3/Documents/agents/smard/demand, type: Directory}
+            - name: deploy-key
+              secret: {secretName: smard-deploy-key, defaultMode: 0440}
