@@ -1,0 +1,83 @@
+# Live SMARD demand forecasting (smard/demand, demand.live).
+#   demand-retrain   Sunday 03:00: refit LightGBM and the network on all data (GPU, 3 slots)
+#   demand-forecast  daily 12:00: forecast tomorrow for all five regions, log it next to SMARD's
+#                    forecast as published at that moment, and update live/scoreboard.md (CPU only)
+# Times are Europe/Berlin, the timezone SMARD and the forecast day use.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: demand-retrain
+spec:
+  schedule: "0 3 * * 0"
+  timeZone: Europe/Berlin
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 172800   # a run missed while the machine was off still happens
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 5400
+      template:
+        metadata:
+          labels: {app: demand-retrain}
+        spec:
+          restartPolicy: Never
+          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          containers:
+            - name: retrain
+              image: homelab/smard-runtime:latest
+              imagePullPolicy: Never
+              workingDir: /app
+              command: ["bash", "-c"]
+              args: ["set -o pipefail; python -m demand.live train 2>&1 | tee -a live/retrain.log"]
+              env:
+                - {name: HOME, value: /tmp}
+              resources:
+                requests: {cpu: "2", memory: 2Gi}
+                limits: {nvidia.com/gpu: 3, memory: 6Gi}
+              volumeMounts:
+                - {name: project, mountPath: /app}
+          volumes:
+            - name: project
+              hostPath: {path: /home/theurerjohn3/Documents/agents/smard/demand, type: Directory}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: demand-forecast
+spec:
+  schedule: "0 12 * * *"
+  timeZone: Europe/Berlin
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600     # a forecast issued much later than noon wouldn't be comparable
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels: {app: demand-forecast}
+        spec:
+          restartPolicy: Never
+          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          containers:
+            - name: forecast
+              image: homelab/smard-runtime:latest
+              imagePullPolicy: Never
+              workingDir: /app
+              command: ["bash", "-c"]
+              args: ["set -o pipefail; mkdir -p live; python -m demand.live forecast 2>&1 | tee -a live/forecast.log"]
+              env:
+                - {name: HOME, value: /tmp}
+                - {name: CUDA_VISIBLE_DEVICES, value: ""}
+              resources:
+                requests: {cpu: "1", memory: 1Gi}
+                limits: {memory: 4Gi}
+              volumeMounts:
+                - {name: project, mountPath: /app}
+          volumes:
+            - name: project
+              hostPath: {path: /home/theurerjohn3/Documents/agents/smard/demand, type: Directory}

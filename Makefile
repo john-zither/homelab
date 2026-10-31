@@ -5,11 +5,11 @@
 .PHONY: validate cluster images secrets deploy status gpu \
         trading-enable trading-disable demand-train media-up media-down search-up search-down audiobook
 
-KUSTOMIZATIONS := cluster apps/media apps/trading
+KUSTOMIZATIONS := cluster apps/media apps/trading apps/energy
 
 validate:            ## render every kustomization and schema-check it
 	@for k in $(KUSTOMIZATIONS); do echo "== $$k"; kubectl kustomize $$k | kubeconform -strict -summary -; done
-	@echo "== apps/energy (Job templates)"; kubeconform -strict -summary apps/energy/*.yaml
+	@echo "== apps/energy (Job templates)"; kubeconform -strict -summary apps/energy/demand-train-job.yaml
 
 cluster:             ## namespaces + NVIDIA device plugin (12 GPU slots)
 	kubectl apply -k cluster
