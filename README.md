@@ -20,10 +20,10 @@ cron, docker-compose and ad-hoc `docker start`:
                         │  gpu-reaper CronJob: scales both to 0 when no Job is active    │
                         │  storysearch-api (CPU, 0↔1, NodePort 30802)                    │
                         │                                                                │
- trading                │  paper-gnn   15:00 America/New_York   ─┐                       │
+ trading                │  paper-linkgnn 09:35 America/New_York ─┐                       │
                         │  vgslx       15:10 America/New_York    ├─ Alpaca paper API      │
                         │  dashboard   16:30 America/New_York   ─┘                       │
-                        │  retrain-gnn Sat 00:00 Europe/Berlin (4 slots)                 │
+                        │  paper-gnn, retrain-gnn (v1, suspended)                        │
                         │  dashboard-web (nginx, NodePort 30899)                         │
                         └────────────────────────────────────────────────────────────────┘
 ```
@@ -83,8 +83,8 @@ saving time disagree. `startingDeadlineSeconds` also states what happens
 after the machine was off: trading jobs skip a missed slot (600 s), while
 the retrain still runs up to 2 days late.
 
-**No automatic retries for trading.** `backoffLimit: 0` on paper-gnn and
-vgslx, because a retry after partially placed orders could double them.
+**No automatic retries for trading.** `backoffLimit: 0` on paper-linkgnn
+and vgslx, because a retry after partially placed orders could double them.
 Audiobook Jobs retry freely (`backoffLimit: 2`); generation resumes at the
 chunk level.
 

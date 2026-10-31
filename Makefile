@@ -37,11 +37,11 @@ gpu:                 ## GPU slots: capacity and what currently holds them
 trading-enable:      ## only after removing the stocks lines from your crontab!
 	@if crontab -l 2>/dev/null | grep -q 'agents/stocks/run_'; then \
 	  echo "crontab still runs stocks jobs; remove them first (crontab -e) or trades will double"; exit 1; fi
-	for cj in paper-gnn vgslx dashboard retrain-gnn; do \
+	for cj in paper-linkgnn vgslx dashboard; do \
 	  kubectl -n trading patch cronjob $$cj -p '{"spec":{"suspend":false}}'; done
 
 trading-disable:
-	for cj in paper-gnn vgslx dashboard retrain-gnn; do \
+	for cj in paper-linkgnn vgslx dashboard; do \
 	  kubectl -n trading patch cronjob $$cj -p '{"spec":{"suspend":true}}'; done
 
 media-up:

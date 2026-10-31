@@ -1,0 +1,48 @@
+# v2 economic-link GNN: weekly long-short rebalance on the GNN paper account. Fires every
+# weekday at 09:35 New York; linkgnn.paper trades only once per week, so a holiday Monday or a
+# failed run is caught up the next day. Each run retrains the small model (~38k parameters,
+# CPU, a few minutes) on data up to last week's close before it scores and trades.
+# backoffLimit 0: never auto-retry a trading run (a retry after partial orders could double them).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paper-linkgnn
+spec:
+  schedule: "35 9 * * 1-5"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels: {app: paper-linkgnn}
+        spec:
+          restartPolicy: Never
+          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          containers:
+            - name: paper-linkgnn
+              image: homelab/stocks-runtime:latest
+              imagePullPolicy: Never
+              workingDir: /app
+              command: ["bash", "-c"]
+              # tee keeps logs/*.log current for the dashboard; pipefail keeps failures visible to k8s
+              args: ["set -o pipefail; python -m linkgnn.paper 2>&1 | tee -a logs/linkgnn.log"]
+              env:
+                - {name: HOME, value: /tmp}
+                - {name: MPLCONFIGDIR, value: /tmp}
+                - {name: PYTHONUNBUFFERED, value: "1"}
+              envFrom:
+                - secretRef: {name: alpaca}
+              resources:
+                requests: {cpu: "2", memory: 1Gi}
+                limits: {memory: 4Gi}
+              volumeMounts:
+                - {name: project, mountPath: /app}
+          volumes:
+            - name: project
+              hostPath: {path: /home/theurerjohn3/Documents/agents/stocks, type: Directory}

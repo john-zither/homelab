@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: trading
 resources:
   - paper-gnn.yaml
+  - paper-linkgnn.yaml
   - vgslx.yaml
   - dashboard.yaml
   - retrain-gnn.yaml

@@ -6,7 +6,7 @@ kind: CronJob
 metadata:
   name: paper-gnn
 spec:
-  suspend: true               # enable with 'make trading-enable' once the crontab entries are removed
+  suspend: true               # retired 2026-10-31: the GNN account now runs paper-linkgnn (v2)
   schedule: "0 15 * * 1-5"
   timeZone: America/New_York
   concurrencyPolicy: Forbid
